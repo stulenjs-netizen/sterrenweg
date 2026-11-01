@@ -152,6 +152,7 @@ const TAU = Math.PI * 2;
 const ZP = 1.25, ZFAR = 34, CAMH = 1, RW = 1;
 const SHOT_RANGE = 13, SHOT_SPEED = 24;
 const LEVEL2_SCORE = 5000, MAX_LIVES = 5;
+const LEAN = .35, NOSE_Z = ZP + .4;  // raketje helt voor een derde mee met de weg; sterrenstof vertrekt bij de neus
 const startLevel = () => location.hash === '#level2' ? 2 : 1;
 const THEMES = [
   { edgeL: 165, edgeR: 320, grid: 270, glow: 35 },
@@ -380,7 +381,7 @@ const sfx = {
 function spawn(z = ZFAR) {
   const comet = (state === 'play' ? elapsed > 6 : true) && Math.random() < .1;
   const bx = rand(-.72, .72);
-  const wob = (state !== 'play' || elapsed > 25) && Math.random() < .35 ? rand(.12, .3) : 0;
+  const wob = (state !== 'play' || elapsed > 25) && Math.random() < (level >= 2 ? .5 : .35) ? rand(.12, level >= 2 ? .38 : .3) : 0;
   targets.push({
     x: bx, bx, y: comet ? .38 : .3, z, pz: z, r: comet ? .17 : rand(.18, .22),
     hue: HUES[Math.floor(Math.random() * HUES.length)], ring: Math.random() < .3,
@@ -401,7 +402,7 @@ function fire() {
   const offs = powers.triple ? [-.24, 0, .24] : [0];
   const h = powers.rapid ? 48 : powers.triple ? 165 : shotCount % 2 ? 165 : 48;
   shotCount++;
-  for (const o of offs) shots.push({ x: clamp(px + o, -.95, .95), y: .18, z: ZP + .1, pz: ZP + .1, h, rot: rand(0, TAU), dead: false });
+  for (const o of offs) shots.push({ x: clamp(px + o, -.95, .95), y: .18, z: NOSE_Z, pz: NOSE_Z, ox: px * (1 - LEAN) * (1 / ZP - 1 / NOSE_Z), h, rot: rand(0, TAU), dead: false });
   fireCD = state !== 'play' ? .32 : powers.rapid ? .075 : .17;
   sfx.shoot();
 }
@@ -462,8 +463,7 @@ function hit(t) {
 
 function levelUp() {
   level = 2; themeTarget = 1;
-  spawnT = 2.6; powerT = 4; bendTimer = 2;
-  lives = Math.min(MAX_LIVES, lives + 1);
+  spawnT = 2.6; powerT = rand(14, 18); bendTimer = 2;
   // alle planeetjes op de weg worden in één keer wakker
   for (const t of targets) {
     if (!t.alive || t.missed || t.kind) continue;
@@ -525,7 +525,7 @@ function update(dt) {
   time += dt;
   const playing = state === 'play';
   if (playing) elapsed += dt;
-  speed = (playing ? Math.min(17, 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
+  speed = (playing ? Math.min(level >= 2 ? 19.5 : 17, 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
   dist += speed * dt;
 
   themeMix += (themeTarget - themeMix) * (1 - Math.exp(-dt * 1.2));
@@ -541,7 +541,7 @@ function update(dt) {
   hill += (hillT - hill) * (1 - Math.exp(-dt * .7));
   for (const k in powers) { powers[k] -= dt; if (powers[k] <= 0) delete powers[k]; }
   slowMix += ((powers.slow ? 1 : 0) - slowMix) * (1 - Math.exp(-dt * 4));
-  if (playing && level >= 2) { powerT -= dt; if (powerT <= 0) { spawnPower(); powerT = rand(9, 14); } }
+  if (playing && level >= 2) { powerT -= dt; if (powerT <= 0) { spawnPower(); powerT = rand(13, 19); } }
 
   // sturen
   if (playing) {
@@ -571,8 +571,8 @@ function update(dt) {
   spawnT -= dt;
   if (spawnT <= 0) {
     spawn();
-    if (playing && elapsed > 40 && Math.random() < .25) spawn();
-    spawnT = playing ? Math.max(.42, 1.15 - elapsed * .011) * rand(.8, 1.2) : rand(.8, 1.3);
+    if (playing && elapsed > 40 && Math.random() < (level >= 2 ? .33 : .25)) spawn();
+    spawnT = playing ? Math.max(level >= 2 ? .38 : .42, 1.15 - elapsed * .011) * rand(.8, 1.2) : rand(.8, 1.3);
   }
 
   for (const t of targets) {
@@ -872,8 +872,10 @@ function drawPower(t) {
 }
 
 function drawShot(p) {
-  const [x, y, s] = P(p.x, p.y, p.z);
-  const [tx, ty] = P(p.x, p.y, Math.max(ZP * .9, p.z - 1.4));
+  let [x, y, s] = P(p.x, p.y, p.z);
+  let [tx, ty] = P(p.x, p.y, Math.max(ZP * .9, p.z - 1.4));
+  const nose = p.ox * Fx * clamp(1 - (p.z - NOSE_Z) / 2.5, 0, 1);  // eerst vanaf de getekende neus
+  x += nose; tx += nose;
   const r = Math.max(2.5, s * .07);
   alphaMul = clamp((SHOT_RANGE - p.z) / 2.5, 0, 1); ctx.globalAlpha = alphaMul;
   ctx.globalCompositeOperation = 'lighter';
@@ -889,53 +891,79 @@ function drawShot(p) {
 }
 
 function drawPlayer() {
-  const [sx, sy, s] = P(px, .16, ZP);
-  const u = s * .14;
-  const [gx, gy] = P(px, 0, ZP);
+  // Het raketje ligt plat op de weg met de neus van je af: elk punt van de tekening
+  // gaat door de projectie, dus hij wijst vanzelf naar het verdwijnpunt (ook in bochten).
+  // lx = opzij, ly = -1.15 (neus, ver weg) .. +.62 (staart, dichtbij), lh = hoogte; alles in u.
+  const w = .14 * Fs / Fx, L = w * 2;
+  // Echte perspectief laat hem aan de rand van de weg ver overhellen; hij helt maar voor een
+  // derde mee en schuift voor de rest als geheel opzij (alsof de camera hem een beetje volgt).
+  const bank = clamp(vx * .1, -.22, .22), cb = Math.cos(bank), sb = Math.sin(bank);
+  const slide = px * (1 - LEAN) * Fx / ZP;
+  const Q = (lx, ly, lh = 0) => { const p = P(px * LEAN + lx * w * cb, .16 + (lh - lx * sb) * w, ZP + (.62 - ly) * L); p[0] += slide; return p; };
+  const S = (lx, ly, lh) => Q(lx, ly, lh).slice(0, 2);
+  const path = (lh, cmds) => {
+    ctx.beginPath();
+    for (const [op, ...a] of cmds) { const p = []; for (let i = 0; i < a.length; i += 2) p.push(...S(a[i], a[i + 1], lh)); ctx[op](...p); }
+    ctx.closePath();
+  };
+  const u = Q(0, 0)[2] * .14;
+
+  const [gx, gy] = P(px, 0, ZP + .3 * L);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.translate(gx, gy); ctx.scale(1, .28);
   drawGlow(165, 100, 60, 0, 0, u * 3.4, .5 + pulse * .3);
   ctx.restore();
 
+  // vlam: naar je toe, dus kort en vooral gloed
   ctx.save();
-  ctx.translate(sx, sy); ctx.rotate(clamp(vx * .16, -.35, .35));
   ctx.globalCompositeOperation = 'lighter';
-  const fl = u * (1 + Math.random() * .5);
-  drawGlow(40, 100, 62, 0, u * .62, u * 1.2, .75);
-  ctx.beginPath(); ctx.moveTo(-u * .22, u * .44); ctx.quadraticCurveTo(0, u * .44 + fl * 1.7, u * .22, u * .44); ctx.closePath();
-  const fg = ctx.createLinearGradient(0, u * .44, 0, u * .44 + fl * 1.2);
+  const fl = 1 + Math.random() * .5;
+  const [nx, ny] = S(0, .5, .1);
+  drawGlow(40, 100, 62, nx, ny, u * 1.25, .8);
+  path(.1, [['moveTo', -.2, .46], ['quadraticCurveTo', 0, .46 + fl * .75, .2, .46]]);
+  const [f0x, f0y] = S(0, .46, .1), [f1x, f1y] = S(0, .46 + fl * .6, .1);
+  const fg = ctx.createLinearGradient(f0x, f0y, f1x, f1y);
   fg.addColorStop(0, 'rgba(255,240,200,.95)'); fg.addColorStop(.4, 'rgba(255,190,90,.7)'); fg.addColorStop(1, 'rgba(255,120,200,0)');
   ctx.fillStyle = fg; ctx.fill();
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
 
-  const wg = ctx.createLinearGradient(0, -u * .2, 0, u * .6);
+  // vleugels
+  const [w0x, w0y] = S(0, -.2), [w1x, w1y] = S(0, .6);
+  const wg = ctx.createLinearGradient(w0x, w0y, w1x, w1y);
   wg.addColorStop(0, '#ffb3df'); wg.addColorStop(1, '#d1529a');
   ctx.fillStyle = wg;
   for (const sd of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(sd * u * .3, -u * .15);
-    ctx.lineTo(sd * u * 1.05, u * .46);
-    ctx.quadraticCurveTo(sd * u * 1.08, u * .64, sd * u * .84, u * .6);
-    ctx.lineTo(sd * u * .3, u * .42);
-    ctx.closePath(); ctx.fill();
+    path(0, [['moveTo', sd * .3, -.15], ['lineTo', sd * 1.05, .46], ['quadraticCurveTo', sd * 1.08, .64, sd * .84, .6], ['lineTo', sd * .3, .42]]);
+    ctx.fill();
   }
-  ctx.beginPath();
-  ctx.moveTo(0, -u * 1.15);
-  ctx.bezierCurveTo(u * .45, -u * .9, u * .58, -u * .1, u * .5, u * .42);
-  ctx.quadraticCurveTo(0, u * .62, -u * .5, u * .42);
-  ctx.bezierCurveTo(-u * .58, -u * .1, -u * .45, -u * .9, 0, -u * 1.15);
-  ctx.closePath();
-  const bgd = ctx.createLinearGradient(-u * .55, 0, u * .55, 0);
+
+  // romp
+  path(.12, [
+    ['moveTo', 0, -1.15],
+    ['bezierCurveTo', .45, -.9, .58, -.1, .5, .42],
+    ['quadraticCurveTo', 0, .62, -.5, .42],
+    ['bezierCurveTo', -.58, -.1, -.45, -.9, 0, -1.15],
+  ]);
+  const [b0x, b0y] = S(-.55, 0, .12), [b1x, b1y] = S(.55, 0, .12);
+  const bgd = ctx.createLinearGradient(b0x, b0y, b1x, b1y);
   bgd.addColorStop(0, '#b9adf5'); bgd.addColorStop(.42, '#ffffff'); bgd.addColorStop(1, '#8c7ad8');
   ctx.fillStyle = bgd; ctx.fill();
   ctx.lineWidth = Math.max(1, u * .04); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.stroke();
-  ctx.fillStyle = '#ff8ccf';
-  ctx.beginPath(); ctx.ellipse(0, u * .14, u * .48, u * .07, 0, 0, TAU); ctx.fill();
-  const cg = ctx.createRadialGradient(-u * .08, -u * .5, u * .02, 0, -u * .38, u * .26);
+
+  // roze band om de romp
+  path(.14, [['moveTo', -.49, .1], ['quadraticCurveTo', 0, .2, .49, .1], ['lineTo', .49, .2], ['quadraticCurveTo', 0, .3, -.49, .2]]);
+  ctx.fillStyle = '#ff8ccf'; ctx.fill();
+
+  // cockpit: een bolletje bovenop, dus in perspectief een plat ovaal
+  const [kx, ky, ks] = Q(0, -.38, .3);
+  const kr = ks * .14 * .24, ksq = .62;
+  ctx.save();
+  ctx.translate(kx, ky); ctx.rotate(Math.atan2(...(() => { const [ax, ay] = S(-1, -.38, .3), [bx, by] = S(1, -.38, .3); return [by - ay, bx - ax]; })())); ctx.scale(1, ksq);
+  const cg = ctx.createRadialGradient(-kr * .35, -kr * .4, kr * .08, 0, 0, kr);
   cg.addColorStop(0, '#e8fff8'); cg.addColorStop(.45, '#7dffd6'); cg.addColorStop(1, '#1f8f86');
-  ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, -u * .38, u * .24, 0, TAU); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(-u * .09, -u * .47, u * .06, 0, TAU); ctx.fill();
+  ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, kr, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(-kr * .38, -kr * .38, kr * .25, 0, TAU); ctx.fill();
   ctx.restore();
 }
 
@@ -1142,7 +1170,8 @@ function startGame() {
   score = 0; lives = 3; combo = 0; elapsed = 0;
   targets = []; shots = []; timers = []; spawnT = .7; px = 0; vx = 0;
   level = startLevel(); themeTarget = level - 1;
-  powers = {}; powerT = 4; bendTimer = 1; slowMix = 0;
+  if (level >= 2) elapsed = 50;  // het tempo waarop je level 2 normaal haalt
+  powers = {}; powerT = level >= 2 ? rand(14, 18) : 4; bendTimer = 1; slowMix = 0;
   $('overlay').hidden = true; $('pause').hidden = false;
   updateHud();
   cvs.focus?.();
