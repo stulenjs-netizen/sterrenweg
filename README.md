@@ -7,7 +7,7 @@ Alles zit in één bestand (`index.html`): HTML, CSS en JavaScript met een canva
 ## Spelen
 
 - **Mac/pc:** ← → sturen, spatie schieten (vasthouden mag), P pauze, M geluid aan/uit
-- **iPhone/iPad:** sleep met je vinger om te sturen. Zolang je vinger op het scherm staat, schiet je. Via Deel → *Zet op beginscherm* krijg je een eigen icoon en speel je op het volledige scherm.
+- **iPhone/iPad (liggend):** sleep met je vinger om te sturen. Zolang je vinger op het scherm staat, schiet je. Via Deel → *Zet op beginscherm* krijg je een eigen icoon en speel je op het volledige scherm.
 
 ## Regels
 

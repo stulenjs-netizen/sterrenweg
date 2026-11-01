@@ -32,7 +32,7 @@
   color-scheme:dark;
 }
 [hidden]{display:none!important}
-html,body{height:100%}
+html,body{height:100%;overscroll-behavior:none}
 body{margin:0;background:var(--void);color:var(--ink);font-family:var(--body);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 #game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
 
@@ -85,6 +85,24 @@ kbd{font-family:var(--body);font-weight:800;font-size:13px;color:var(--ink);bord
 .big{font-family:var(--display);font-size:clamp(44px,12vw,64px);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums;text-shadow:0 0 24px rgba(255,211,107,.5)}
 .iconbtn:focus-visible,.btn:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
 @media (max-width:480px){.card{padding:18px 18px 20px}.tag{font-size:17px}}
+/* liggende iPhone: weinig hoogte, dus de kaart in het midden en compacter */
+@media (max-height:520px){
+  .overlay{align-items:center;padding-block:calc(env(safe-area-inset-top,0px) + 10px) calc(env(safe-area-inset-bottom,0px) + 10px)}
+  .card{width:min(560px,100%);max-height:100%;overflow:auto;padding:14px 20px 16px;gap:8px}
+  h1{font-size:30px}
+  .tag{font-size:15px}
+  .rules{font-size:13px;line-height:1.35}
+  .big{font-size:40px}
+  .btn{font-size:17px;padding:9px 22px 7px}
+}
+.rotate{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;
+  padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));
+  background:radial-gradient(circle at 50% 40%,#2a1260,var(--void) 70%)}
+.rotate p{margin:0;font-size:20px;font-weight:800}
+.rotate .sub{font-size:15px;font-weight:500;color:var(--dim)}
+.phone{width:46px;height:80px;border:3px solid var(--mint);border-radius:10px;box-shadow:0 0 18px rgba(125,255,214,.5);margin-bottom:10px;animation:turn 2.2s ease-in-out infinite}
+@keyframes turn{0%,25%{transform:rotate(0)}55%,100%{transform:rotate(-90deg)}}
+@media (prefers-reduced-motion:reduce){.phone{animation:none;transform:rotate(-90deg)}}
 </style>
 </head>
 <body>
@@ -105,6 +123,12 @@ kbd{font-family:var(--body);font-weight:800;font-size:13px;color:var(--ink);bord
       <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="4" width="3.5" height="12" rx="1.2"/><rect x="11.5" y="4" width="3.5" height="12" rx="1.2"/></svg>
     </button>
   </div>
+</div>
+
+<div id="rotate" class="rotate" hidden>
+  <div class="phone"></div>
+  <p>Draai je scherm een kwartslag</p>
+  <p class="sub">Sterrenweg speel je liggend.</p>
 </div>
 
 <div id="overlay" class="overlay">
@@ -1086,6 +1110,7 @@ function showPause() {
 }
 
 function startGame() {
+  if (portrait.matches) return;
   audio();
   state = 'play';
   score = 0; lives = 3; combo = 0; elapsed = 0;
@@ -1163,6 +1188,14 @@ $('mute').addEventListener('click', e => { audio(); toggleMute(); e.currentTarge
 $('pause').addEventListener('click', e => { pause(); e.currentTarget.blur(); });
 addEventListener('resize', resize);
 
+// iPhone en iPad: alleen liggend. Een website kan het scherm niet vastzetten, dus rechtop pauzeren we.
+const portrait = matchMedia('(orientation: portrait) and (pointer: coarse)');
+function checkOrientation() {
+  $('rotate').hidden = !portrait.matches;
+  if (portrait.matches) pause();
+}
+portrait.addEventListener('change', checkOrientation);
+
 // ---------- start ----------
 resize();
 galaxyA = makeGalaxy(() => rand(190, 320));
@@ -1171,6 +1204,7 @@ for (let i = 0; i < 7; i++) spawn(rand(5, ZFAR));
 updateMute();
 updateHud();
 showMenu();
+checkOrientation();
 requestAnimationFrame(frame);
 })();
 </script>
