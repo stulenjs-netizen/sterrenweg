@@ -151,28 +151,34 @@ const TAU = Math.PI * 2;
 // Wereld: x links-rechts (weg loopt van -1 tot 1), y hoogte boven de weg, z diepte vanaf de camera
 const ZP = 1.25, ZFAR = 34, CAMH = 1, RW = 1;
 const SHOT_RANGE = 13, SHOT_SPEED = 24;
-const LEVEL2_SCORE = 5000, MAX_LIVES = 5;
+const LEVEL2_SCORE = 5000, LEVEL3_SCORE = 17500, MAX_LIVES = 5, FULL_LIVES = 3;
 const LEAN = .35, NOSE_Z = ZP + .4;  // raketje helt voor een derde mee met de weg; sterrenstof vertrekt bij de neus
-const startLevel = () => location.hash === '#level2' ? 2 : 1;
+const startLevel = () => { const m = location.hash.match(/^#level([23])$/); return m ? +m[1] : 1; };
 const THEMES = [
   { edgeL: 165, edgeR: 320, grid: 270, glow: 35 },
   { edgeL: 40, edgeR: 335, grid: 15, glow: 20 },
+  { edgeL: 150, edgeR: 410, grid: 150, glow: 95 },  // 410 = goud; zo loopt de overgang niet de hele kleurcirkel rond
 ];
 const SKIES = [
   { stops: ['#070520', '#1d1048', '#120b33', '#060418'], blobs: [[.12, .28, 290], [.88, .2, 325], [.5, .1, 250], [.8, .62, 190], [.18, .72, 270], [.96, .9, 330], [.42, .5, 205]] },
   { stops: ['#14051a', '#3d0f3a', '#240a2a', '#0c0412'], blobs: [[.12, .28, 340], [.88, .2, 20], [.5, .1, 300], [.8, .62, 30], [.18, .72, 350], [.96, .9, 10], [.42, .5, 280]] },
+  { stops: ['#02120d', '#0a3a2b', '#072a20', '#020b08'], blobs: [[.12, .28, 150], [.88, .2, 110], [.5, .1, 170], [.8, .62, 85], [.18, .72, 135], [.96, .9, 185], [.42, .5, 55]] },
 ];
 const POWERS = {
   triple: { name: 'Drieling', hue: 165, dur: 10, w: 3 },
   rapid: { name: 'Snelvuur', hue: 48, dur: 8, w: 3 },
   slow: { name: 'Vertraging', hue: 205, dur: 7, w: 2 },
   heart: { name: 'Extra hartje', hue: 340, dur: 0, w: 1.5 },
+  refill: { name: 'Hartjes vol', hue: 310, dur: 0, w: 2 },
+  shield: { name: 'Schild', hue: 265, dur: 20, w: 3, from: 3 },
 };
 const HUES = [330, 280, 195, 160, 25, 52];
+const HUES3 = [150, 120, 95, 170, 75, 185];  // level 3: mos, jade, limoen
+const SLOTS = [-.72, -.36, 0, .36, .72];     // plekken voor kristalblokken over de breedte van de weg
 const WORDS = ['Raak!', 'Joepie!', 'Wakker!', 'Hoera!', 'Top!', 'Boem!', 'Wauw!', 'Yes!'];
 
 let W = 0, H = 0, DPR = 1, cx = 0, hy = 0, F = 1, Fx = 1, Fs = 1;
-let bgA = null, bgB = null, starLayer = null, galaxyA = null, galaxyB = null, twinkles = [], dust = [];
+let bgs = [], starLayer = null, galaxies = [], twinkles = [], dust = [];
 
 let state = 'menu', time = 0, elapsed = 0, dist = 0, speed = 8;
 let px = 0, vx = 0, aiTarget = null;
@@ -187,7 +193,11 @@ let alphaMul = 1;
 let level = 1, themeMix = 0, themeTarget = 0;
 let curve = 0, curveT = 0, hill = 0, hillT = 0, bendTimer = 0;
 let powers = {}, powerT = 0, slowMix = 0;
-const th = k => THEMES[0][k] + (THEMES[1][k] - THEMES[0][k]) * themeMix;
+// level 3: kristalblokken (blockT), knipperen na een botsing (invuln)
+let blockT = 0, level3At = 0, invuln = 0;
+const th = k => { const i = Math.min(Math.floor(themeMix), THEMES.length - 2), f = themeMix - i; return THEMES[i][k] + (THEMES[i + 1][k] - THEMES[i][k]) * f; };
+// gewicht van thema i bij de huidige overgang (0..1), voor het overvloeien van lucht en stelsel
+const themeW = i => clamp(1 - Math.abs(themeMix - i), 0, 1);
 
 try { best = +localStorage.getItem('sterrenweg-best') || 0; } catch (e) {}
 
@@ -263,8 +273,7 @@ function makeSky(sky) {
 }
 
 function makeBg() {
-  bgA = makeSky(SKIES[0]);
-  bgB = makeSky(SKIES[1]);
+  bgs = SKIES.map(makeSky);
   const bw = W + 120, bh = H;
   const [c, g] = layer(bw, bh);
   starLayer = c;
@@ -294,7 +303,7 @@ function decoPlanet(g, x, y, R, h, ring) {
   if (ring) ringArc(0, Math.PI, .6);
 }
 
-function makeGalaxy(armHue) {
+function makeGalaxy(armHue, coreHue = 300) {
   const S = 700, c = S / 2;
   const galaxy = document.createElement('canvas');
   galaxy.width = galaxy.height = S;
@@ -302,7 +311,7 @@ function makeGalaxy(armHue) {
   g.globalCompositeOperation = 'lighter';
   const core = g.createRadialGradient(c, c, 0, c, c, S * .5);
   core.addColorStop(0, 'hsla(40,100%,92%,1)'); core.addColorStop(.05, 'hsla(30,100%,75%,.8)');
-  core.addColorStop(.2, 'hsla(300,80%,55%,.25)'); core.addColorStop(.5, 'hsla(260,80%,40%,.07)'); core.addColorStop(1, 'hsla(260,80%,30%,0)');
+  core.addColorStop(.2, `hsla(${coreHue},80%,55%,.25)`); core.addColorStop(.5, `hsla(${coreHue - 40},80%,40%,.07)`); core.addColorStop(1, `hsla(${coreHue - 40},80%,30%,0)`);
   g.fillStyle = core; g.fillRect(0, 0, S, S);
   for (let arm = 0; arm < 3; arm++) {
     for (let i = 0; i < 1800; i++) {
@@ -371,6 +380,16 @@ const sfx = {
     [72, 76, 79, 84, 88, 91].forEach((n, i) => tone(midi(n), .22, 'triangle', .07, i * .045));
     tone(400, .5, 'sine', .08, 0, 1600);
   },
+  tink() { tone(rand(2600, 3200), .12, 'triangle', .05); tone(rand(4200, 4800), .08, 'sine', .03, .02); },
+  crash() {
+    tone(160, .45, 'sawtooth', .08, 0, 50); tone(90, .5, 'square', .05, 0, 40);
+    for (let i = 0; i < 4; i++) tone(rand(1800, 3600), .15, 'triangle', .03, i * .03);
+  },
+  shatter() {
+    for (let i = 0; i < 8; i++) tone(rand(1500, 4200), .2, 'triangle', .04, i * .025);
+    tone(600, .4, 'sine', .06, 0, 1800);
+  },
+  split() { tone(520, .15, 'sine', .08, 0, 900); tone(780, .15, 'sine', .06, .08, 1200); },
   levelup() {
     [[60, 0], [64, .12], [67, .24], [72, .36], [67, .52], [72, .64]].forEach(([n, w]) => tone(midi(n), .3, 'square', .045, w));
     [72, 76, 79, 84].forEach(n => tone(midi(n), 1.4, 'triangle', .06, .8));
@@ -378,23 +397,76 @@ const sfx = {
 };
 
 // ---------- spel ----------
+// Ligt x op diepte z in de schaduw van een kristalblok? Daar ketst je sterrenstof af,
+// dus daar zetten we geen planeetje neer (pas als het blok voorbij is, kun je erbij).
+function clearX(x, z, r) {
+  for (const b of targets) if (b.kind === 'block' && b.alive && b.z < z && z - b.z < 12 && Math.abs(b.x - x) < b.hw + r + .1) return false;
+  return true;
+}
+function freeX(z, r, span) {
+  for (let i = 0; i < 14; i++) { const x = rand(-span, span); if (clearX(x, z, r)) return x; }
+  return null;
+}
+function blocksNear(z) { return targets.some(b => b.kind === 'block' && b.alive && Math.abs(b.z - z) < 10); }
+
 function spawn(z = ZFAR) {
   const comet = (state === 'play' ? elapsed > 6 : true) && Math.random() < .1;
-  const bx = rand(-.72, .72);
-  const wob = (state !== 'play' || elapsed > 25) && Math.random() < (level >= 2 ? .5 : .35) ? rand(.12, level >= 2 ? .38 : .3) : 0;
+  const bx = freeX(z, .22, .72);
+  if (bx === null) return;
+  const wob = (state !== 'play' || elapsed > 25) && !blocksNear(z) && Math.random() < (level >= 2 ? .5 : .35) ? rand(.12, level >= 2 ? .38 : .3) : 0;
+  const sprout = level >= 3 && !comet && Math.random() < .18;
+  const hues = level >= 3 ? HUES3 : HUES;
   targets.push({
     x: bx, bx, y: comet ? .38 : .3, z, pz: z, r: comet ? .17 : rand(.18, .22),
-    hue: HUES[Math.floor(Math.random() * HUES.length)], ring: Math.random() < .3,
-    comet, wob, ph: rand(0, TAU), zz: rand(0, 3), alive: true, missed: false,
+    hue: sprout ? 100 : hues[Math.floor(Math.random() * hues.length)], ring: !sprout && Math.random() < .3,
+    comet, sprout, wob, ph: rand(0, TAU), zz: rand(0, 3), alive: true, missed: false,
   });
 }
 
+// kiemplaneetje: bij een treffer komen er twee kleintjes uit die naar opzij glijden.
+// Ze verschijnen een stuk verderop, zodat er tijd is om ze allebei te raken; missen kost geen hartje.
+function split(t) {
+  for (const sd of [-1, 1]) {
+    const bx = clamp(t.x + sd * .22, -.76, .76), z = Math.max(t.z + 2.5, 8);
+    if (!clearX(bx, z, .13)) continue;
+    targets.push({ x: t.x, bx, slide: true, small: true, y: .26, z, pz: z, r: .14, hue: t.hue + sd * 22, ring: false, comet: false, wob: 0, ph: rand(0, TAU), zz: rand(0, 3), alive: true, missed: false });
+  }
+  sfx.split();
+}
+
+// Kristalblokken staan in rijtjes op vaste plekken; twee plekken naast elkaar blijven altijd vrij.
+function spawnBlockRow(z, gap, n) {
+  const slots = [0, 1, 2, 3, 4].filter(i => i !== gap && i !== gap + 1).sort(() => Math.random() - .5).slice(0, n);
+  for (const i of slots) {
+    targets.push({ kind: 'block', x: SLOTS[i], bx: SLOTS[i], y: 0, z, pz: z, hw: .17, h: rand(.28, .38), d: .3, r: .17, hue: rand(6, 26), wob: 0, ph: rand(0, TAU), alive: true, missed: false });
+  }
+}
+function spawnBlocks() {
+  const since = elapsed - level3At, gap = Math.floor(Math.random() * 4);
+  if (since < 20) {
+    // eerst losse blokken, zodat je went
+    spawnBlockRow(ZFAR, gap, Math.random() < .6 ? 1 : 2);
+    blockT = rand(2.6, 3.6);
+  } else if (Math.random() < .25) {
+    // slalom: drie rijen achter elkaar, de opening schuift steeds een plekje op
+    let g = gap;
+    for (let k = 0; k < 3; k++) { spawnBlockRow(ZFAR + k * 7, g, 3); g = clamp(g + (Math.random() < .5 ? -1 : 1), 0, 3); }
+    blockT = rand(5.2, 6.2);
+  } else {
+    spawnBlockRow(ZFAR, gap, Math.random() < .5 ? 2 : 3);
+    blockT = rand(2.8, 3.8);
+  }
+}
+
 function spawnPower() {
-  const opts = Object.entries(POWERS).filter(([k]) => k !== 'heart' || lives < MAX_LIVES);
+  const opts = Object.entries(POWERS).filter(([k, d]) => (d.from || 2) <= level
+    && (k !== 'heart' || lives < MAX_LIVES) && (k !== 'refill' || lives < FULL_LIVES) && !powers[k]);
+  if (!opts.length) return;
   let r = Math.random() * opts.reduce((sum, [, d]) => sum + d.w, 0);
   let type = opts[0][0];
   for (const [k, d] of opts) { r -= d.w; if (r <= 0) { type = k; break; } }
-  const bx = rand(-.6, .6);
+  const bx = freeX(ZFAR, .19, .6);
+  if (bx === null) { powerT = 1; return; }
   targets.push({ kind: 'power', ptype: type, x: bx, bx, y: .34, z: ZFAR, pz: ZFAR, r: .19, hue: POWERS[type].hue, alive: true, missed: false, wob: 0, ph: rand(0, TAU) });
 }
 
@@ -445,6 +517,7 @@ function hit(t) {
   const sc = clamp(5 / t.z, .6, 1.45);
   const h = t.comet ? 45 : t.hue;
   burst(x, y, sc, h, t.comet);
+  if (t.sprout) split(t);
   pulse = 1; pulseHue = h;
   if (!reduce) shake = Math.max(shake, 4 * sc + 2);
   if (state !== 'play') return;
@@ -454,16 +527,21 @@ function hit(t) {
   score += pts;
   addText(x, y - 26 * sc, '+' + pts, h, 22 * sc + 12);
   if (t.comet) addText(x, y - 62 * sc - 14, 'Gouden ster!', 45, 18 * sc + 10, { life: 1.2 });
+  else if (t.sprout) addText(x, y - 62 * sc - 14, 'Splits!', 100, 16 * sc + 10);
   else if (Math.random() < .4) addText(x, y - 62 * sc - 14, WORDS[Math.floor(Math.random() * WORDS.length)], h, 16 * sc + 10);
   sfx.hit(combo, t.comet);
   if (combo % 10 === 0) supernova();
-  if (level === 1 && score >= LEVEL2_SCORE) levelUp();
+  if (level === 1 && score >= LEVEL2_SCORE) levelUp(2);
+  else if (level === 2 && score >= LEVEL3_SCORE) levelUp(3);
   updateHud();
 }
 
-function levelUp() {
-  level = 2; themeTarget = 1;
+function levelUp(n) {
+  level = n; themeTarget = n - 1;
   spawnT = 2.6; powerT = rand(14, 18); bendTimer = 2;
+  if (n === 3) { level3At = elapsed; blockT = 4; }
+  const refill = lives < FULL_LIVES;
+  lives = Math.max(lives, FULL_LIVES);  // elk level begin je met volle hartjes
   // alle planeetjes op de weg worden in één keer wakker
   for (const t of targets) {
     if (!t.alive || t.missed || t.kind) continue;
@@ -473,8 +551,11 @@ function levelUp() {
   }
   novaFlash = 1; pulse = 1;
   const big = clamp(W * .1, 40, 90);
-  addText(cx, H * .24, 'LEVEL 2', 0, big, { display: true, rainbow: true, life: 2.6, vy: -12 });
-  addText(cx, H * .24 + big * .85, 'Bochten en power-ups!', 40, clamp(W * .03, 18, 28), { life: 2.6, vy: -12 });
+  const sub = clamp(W * .03, 18, 28);
+  addText(cx, H * .24, 'LEVEL ' + n, 0, big, { display: true, rainbow: true, life: 2.6, vy: -12 });
+  addText(cx, H * .24 + big * .85, n === 3 ? 'Pas op voor de kristallen!' : 'Bochten en power-ups!', n === 3 ? 25 : 40, sub, { life: 2.6, vy: -12 });
+  if (refill) addText(cx, H * .24 + big * .85 + sub * 1.4, 'Hartjes weer vol', 340, sub * .85, { life: 2.6, vy: -12 });
+  updateHud();
   sfx.levelup();
   for (let i = 0; i < 12; i++) {
     timers.push({ at: time + .15 + i * .14, fn() { burst(rand(W * .1, W * .9), rand(H * .05, H * .5), rand(.8, 1.3), rand(0, 360), true); sfx.pop(); } });
@@ -489,6 +570,7 @@ function collect(t) {
   burst(x, y, sc, def.hue, true);
   parts.push({ t: 'ring', x, y, r0: 20 * sc, r1: 280 * sc, w: 10 * sc, life: .8, max: .8, h: def.hue });
   if (t.ptype === 'heart') lives = Math.min(MAX_LIVES, lives + 1);
+  else if (t.ptype === 'refill') lives = Math.max(lives, FULL_LIVES);
   else powers[t.ptype] = def.dur;
   addText(x, y - 40 * sc, def.name + '!', def.hue, 20 * sc + 10, { display: true, life: 1.4 });
   pulse = 1; pulseHue = def.hue;
@@ -507,10 +589,50 @@ function supernova() {
   }
 }
 
+function shatter(x, y, sc, h) {
+  const m = reduce ? .5 : 1;
+  parts.push({ t: 'flash', x, y, r: 150 * sc, life: .3, max: .3, h });
+  parts.push({ t: 'ring', x, y, r0: 8 * sc, r1: 150 * sc, w: 5 * sc, life: .5, max: .5, h });
+  for (let i = 0; i < 26 * m; i++) {
+    const a = rand(0, TAU), v = rand(150, 520) * sc;
+    parts.push({ t: 'shard', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 140 * sc, rot: rand(0, TAU), vr: rand(-12, 12), size: rand(5, 13) * sc, life: rand(.6, 1.1), max: 1.1, h: h + rand(-10, 25) });
+  }
+  for (let i = 0; i < 30 * m; i++) {
+    const a = rand(0, TAU), v = rand(120, 480) * sc;
+    parts.push({ t: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60 * sc, life: rand(.4, .9), max: .9, h: h + rand(-15, 30), l: rand(70, 92), w: rand(1.2, 2.6) * sc });
+  }
+}
+
+// tegen een kristalblok gebotst
+function crash(t) {
+  t.alive = false;
+  const [x, y] = P(t.x, t.h * .6, t.z);
+  const sc = clamp(5 / t.z, .8, 1.5);
+  if (powers.shield) {
+    delete powers.shield;
+    shatter(x, y, sc * 1.3, t.hue);
+    shatter(x, y, sc, 265);
+    addText(x, y - 60, 'Dwars erdoorheen!', 265, 26, { display: true, life: 1.3 });
+    pulse = 1; pulseHue = 265; novaFlash = .5;
+    sfx.shatter();
+    return;
+  }
+  shatter(x, y, sc, t.hue);
+  if (state !== 'play' || invuln > 0) return;
+  combo = 0; lives--; invuln = 1.3;
+  missFlash = 1;
+  if (!reduce) shake = Math.max(shake, 14);
+  addText(clamp(x, 60, W - 60), Math.min(y - 70, H - 140), 'Au!', 0, 34);
+  sfx.crash();
+  updateHud();
+  if (lives <= 0) gameOver();
+}
+
 function miss(t) {
   t.missed = true;
   if (state !== 'play') return;
   combo = 0;
+  if (t.small) { updateHud(); return; }
   lives--;
   missFlash = 1;
   if (!reduce) shake = Math.max(shake, 9);
@@ -525,7 +647,8 @@ function update(dt) {
   time += dt;
   const playing = state === 'play';
   if (playing) elapsed += dt;
-  speed = (playing ? Math.min(level >= 2 ? 19.5 : 17, 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
+  // level 3 iets rustiger dan het eind van level 2: uitwijken voor blokken vraagt reactietijd
+  speed = (playing ? Math.min([17, 19.5, 18][level - 1], 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
   dist += speed * dt;
 
   themeMix += (themeTarget - themeMix) * (1 - Math.exp(-dt * 1.2));
@@ -541,7 +664,9 @@ function update(dt) {
   hill += (hillT - hill) * (1 - Math.exp(-dt * .7));
   for (const k in powers) { powers[k] -= dt; if (powers[k] <= 0) delete powers[k]; }
   slowMix += ((powers.slow ? 1 : 0) - slowMix) * (1 - Math.exp(-dt * 4));
-  if (playing && level >= 2) { powerT -= dt; if (powerT <= 0) { spawnPower(); powerT = rand(13, 19); } }
+  if (playing && level >= 2) { powerT -= dt; if (powerT <= 0) { powerT = rand(13, 19); spawnPower(); } }
+  if (playing && level >= 3) { blockT -= dt; if (blockT <= 0) spawnBlocks(); }
+  invuln = Math.max(0, invuln - dt);
 
   // sturen
   if (playing) {
@@ -571,14 +696,18 @@ function update(dt) {
   spawnT -= dt;
   if (spawnT <= 0) {
     spawn();
-    if (playing && elapsed > 40 && Math.random() < (level >= 2 ? .33 : .25)) spawn();
-    spawnT = playing ? Math.max(level >= 2 ? .38 : .42, 1.15 - elapsed * .011) * rand(.8, 1.2) : rand(.8, 1.3);
+    // level 2 is drukker; in level 3 komen er blokken bij, dus weer iets minder planeetjes
+    if (playing && elapsed > 40 && Math.random() < [.25, .33, .12][level - 1]) spawn();
+    spawnT = playing ? Math.max([.42, .38, .5][level - 1], 1.15 - elapsed * .011) * rand(.8, 1.2) : rand(.8, 1.3);
   }
 
   for (const t of targets) {
     t.pz = t.z; t.z -= speed * dt;
     if (t.wob) t.x = clamp(t.bx + Math.sin(time * 1.7 + t.ph) * t.wob, -.78, .78);
-    if (t.kind === 'power') {
+    if (t.slide) t.x += (t.bx - t.x) * (1 - Math.exp(-dt * 6));
+    if (t.kind === 'block') {
+      if (!t.missed && t.alive && t.z < ZP + .25) { t.missed = true; if (Math.abs(px - t.x) < t.hw + .09) crash(t); }
+    } else if (t.kind === 'power') {
       // erdoorheen rijden pakt hem ook; missen kost niets
       if (!t.missed && t.alive && t.z < ZP + .2) { if (Math.abs(px - t.x) < .3) collect(t); else t.missed = true; }
     } else if (!t.missed && t.alive && t.z < ZP - .15) miss(t);
@@ -590,6 +719,20 @@ function update(dt) {
     for (const t of targets) {
       if (!t.alive || t.missed) continue;
       const d0 = s.pz - t.pz, d1 = s.z - t.z;
+      if (t.kind === 'block') {
+        // sterrenstof ketst af op kristal
+        if (d0 <= .25 && d1 >= -.25 && Math.abs(s.x - t.x) < t.hw + .03) {
+          s.dead = true;
+          const [x, y, sc] = P(s.x, Math.min(s.y, t.h * .8), t.z);
+          for (let i = 0; i < 8; i++) {
+            const a = rand(Math.PI, TAU), v = rand(60, 200) * sc / 60;
+            parts.push({ t: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(.2, .4), max: .4, h: t.hue + 20, l: 85, w: 1.5 });
+          }
+          sfx.tink();
+          break;
+        }
+        continue;
+      }
       if (d0 <= .25 && d1 >= -.25 && Math.abs(s.x - t.x) < t.r + .07) {
         t.alive = false; s.dead = true;
         if (t.kind === 'power') collect(t); else hit(t);
@@ -636,8 +779,11 @@ function starPath(x, y, R, r, rot, n = 5) {
 
 function drawSky() {
   const off = -60 - px * 14 - clamp(curve * 1800, -30, 30);
-  ctx.drawImage(bgA, off, 0, W + 120, H);
-  if (themeMix > .01) { ctx.globalAlpha = themeMix; ctx.drawImage(bgB, off, 0, W + 120, H); ctx.globalAlpha = 1; }
+  ctx.drawImage(bgs[0], off, 0, W + 120, H);
+  for (let i = 1; i < bgs.length; i++) {
+    const a = clamp(themeMix - (i - 1), 0, 1);
+    if (a > .01) { ctx.globalAlpha = a; ctx.drawImage(bgs[i], off, 0, W + 120, H); ctx.globalAlpha = 1; }
+  }
   ctx.drawImage(starLayer, off, 0, W + 120, H);
   ctx.globalCompositeOperation = 'lighter';
   for (const t of twinkles) {
@@ -648,8 +794,7 @@ function drawSky() {
   const gx = cx + bendX(ZFAR) * Fx / ZFAR, gy = hy - bendY(ZFAR) * F / ZFAR;
   ctx.save();
   ctx.translate(gx, gy); ctx.scale(1, .34); ctx.rotate(time * .025);
-  if (themeMix < .99) { ctx.globalAlpha = 1 - themeMix; ctx.drawImage(galaxyA, -gs / 2, -gs / 2, gs, gs); }
-  if (themeMix > .01) { ctx.globalAlpha = themeMix; ctx.drawImage(galaxyB, -gs / 2, -gs / 2, gs, gs); }
+  galaxies.forEach((g, i) => { const a = themeW(i); if (a > .01) { ctx.globalAlpha = a; ctx.drawImage(g, -gs / 2, -gs / 2, gs, gs); } });
   ctx.restore();
   ctx.globalCompositeOperation = 'lighter';
   drawGlow(th('glow'), 100, 75, gx, gy, gs * .14, .55 + .1 * Math.sin(time * 1.3));
@@ -683,7 +828,10 @@ function drawRoad() {
   for (let i = N; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]);
   ctx.closePath();
   const gr = ctx.createLinearGradient(0, yFar, 0, H);
-  gr.addColorStop(0, 'rgba(30,16,70,0)'); gr.addColorStop(.12, 'rgba(26,14,64,.6)'); gr.addColorStop(1, 'rgba(16,9,44,.94)');
+  const g3 = clamp(themeMix - 1, 0, 1), mix = (a, b) => Math.round(a + (b - a) * g3);
+  gr.addColorStop(0, `rgba(${mix(30, 8)},${mix(16, 44)},${mix(70, 36)},0)`);
+  gr.addColorStop(.12, `rgba(${mix(26, 7)},${mix(14, 40)},${mix(64, 32)},.6)`);
+  gr.addColorStop(1, `rgba(${mix(16, 4)},${mix(9, 24)},${mix(44, 20)},.94)`);
   ctx.fillStyle = gr; ctx.fill();
   ctx.clip();
   ctx.globalCompositeOperation = 'lighter';
@@ -786,6 +934,7 @@ function drawTarget(t) {
       ctx.globalCompositeOperation = 'source-over';
     }
     if (t.ring) ring(0, Math.PI, .85);
+    if (t.sprout && R > 3) drawSprout(x, y, R, t.ph);
     if (R > 12 && !t.missed) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       for (let i = 0; i < 2; i++) {
@@ -798,6 +947,73 @@ function drawTarget(t) {
     }
   }
   alphaMul = 1; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
+
+// twee blaadjes op een steeltje bovenop een kiemplaneetje
+function drawSprout(x, y, R, ph) {
+  const sway = Math.sin(time * 3 + ph) * .25;
+  ctx.save();
+  ctx.translate(x, y - R * .9); ctx.rotate(sway);
+  ctx.strokeStyle = 'hsl(110,55%,32%)'; ctx.lineWidth = Math.max(1, R * .09); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(R * .08, -R * .3, 0, -R * .5); ctx.stroke();
+  for (const sd of [-1, 1]) {
+    ctx.save();
+    ctx.translate(0, -R * .48); ctx.rotate(sd * .75);
+    const g = ctx.createLinearGradient(0, 0, 0, -R * .55);
+    g.addColorStop(0, 'hsl(120,60%,38%)'); g.addColorStop(1, 'hsl(95,85%,62%)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, -R * .27, R * .15, R * .29, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'hsla(100,70%,82%,.7)'; ctx.lineWidth = Math.max(.6, R * .03);
+    ctx.beginPath(); ctx.moveTo(0, -R * .05); ctx.lineTo(0, -R * .48); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Kristalblok: een doosje in echt perspectief (voorkant, bovenkant en de zijkant aan de kant van het midden)
+function drawBlock(t) {
+  const a = clamp((ZFAR - t.z) / 6, 0, 1) * (t.missed ? clamp((t.z - .45) / .7, 0, 1) : 1);
+  if (a <= 0) return;
+  const x0 = t.x - t.hw, x1 = t.x + t.hw, z0 = t.z, z1 = t.z + t.d, h = t.h;
+  const [mx, my, s] = P(t.x, h * .5, z0);
+  if (s * t.hw < .6) return;
+  alphaMul = a; ctx.globalAlpha = a;
+  // waarschuwingsgloed op de weg en om het blok, al van ver te zien
+  ctx.globalCompositeOperation = 'lighter';
+  const glowA = .6 + .25 * Math.sin(time * 6 + t.ph);
+  const [gx, gy] = P(t.x, 0, z0 + t.d / 2);
+  ctx.save(); ctx.translate(gx, gy); ctx.scale(1, .3); drawGlow(t.hue, 100, 55, 0, 0, s * t.hw * 3.4, glowA); ctx.restore();
+  drawGlow(t.hue, 100, 60, mx, my, s * t.hw * 2.6, .5 * glowA);
+  ctx.globalCompositeOperation = 'source-over';
+  const fbl = P(x0, 0, z0), fbr = P(x1, 0, z0), ftl = P(x0, h, z0), ftr = P(x1, h, z0);
+  const bbl = P(x0, 0, z1), bbr = P(x1, 0, z1), btl = P(x0, h, z1), btr = P(x1, h, z1);
+  const face = (pts, fill) => { poly(pts); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); };
+  if (ftl[0] > btl[0]) face([bbl, fbl, ftl, btl], `hsla(${t.hue},85%,34%,.92)`);
+  if (ftr[0] < btr[0]) face([fbr, bbr, btr, ftr], `hsla(${t.hue},85%,34%,.92)`);
+  face([ftl, ftr, btr, btl], `hsla(${t.hue + 18},100%,74%,.95)`);
+  const fg = ctx.createLinearGradient(0, ftl[1], 0, fbl[1]);
+  fg.addColorStop(0, `hsla(${t.hue + 8},100%,62%,.95)`); fg.addColorStop(1, `hsla(${t.hue - 4},90%,36%,.95)`);
+  face([fbl, fbr, ftr, ftl], fg);
+  // glinstering die over de voorkant schuift
+  const gl = ((time * .5 + t.ph) % 1.8) - .4, wdt = x1 - x0;
+  if (gl > -.3 && gl < 1.1) {
+    const q = (fx, fy) => P(x0 + clamp(fx, 0, 1) * wdt, fy * h, z0);
+    ctx.save(); poly([fbl, fbr, ftr, ftl]); ctx.closePath(); ctx.clip();
+    face([q(gl, 1), q(gl + .22, 1), q(gl - .08, 0), q(gl - .3, 0)], 'rgba(255,255,255,.28)');
+    ctx.restore();
+  }
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = `hsla(${t.hue + 25},100%,85%,.85)`; ctx.lineWidth = Math.max(1, s * .012); ctx.lineJoin = 'round';
+  poly([fbl, fbr, ftr, ftl]); ctx.closePath(); ctx.stroke();
+  poly([ftl, btl, btr, ftr]); ctx.stroke();
+  alphaMul = 1; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
+
+function heartPath(x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + s * .75);
+  ctx.bezierCurveTo(x - s * 1.1, y, x - s * .6, y - s * .95, x, y - s * .35);
+  ctx.bezierCurveTo(x + s * .6, y - s * .95, x + s * 1.1, y, x, y + s * .75);
 }
 
 function drawIcon(type, x, y, s, ink) {
@@ -813,12 +1029,18 @@ function drawIcon(type, x, y, s, ink) {
     ctx.lineWidth = s * .17;
     ctx.beginPath(); ctx.arc(x, y, s * .78, 0, TAU); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, y - s * .48); ctx.lineTo(x, y); ctx.lineTo(x + s * .36, y + s * .18); ctx.stroke();
-  } else {
+  } else if (type === 'shield') {
     ctx.beginPath();
-    ctx.moveTo(x, y + s * .75);
-    ctx.bezierCurveTo(x - s * 1.1, y, x - s * .6, y - s * .95, x, y - s * .35);
-    ctx.bezierCurveTo(x + s * .6, y - s * .95, x + s * 1.1, y, x, y + s * .75);
+    ctx.moveTo(x, y - s * .85);
+    ctx.quadraticCurveTo(x + s * .45, y - s * .6, x + s * .75, y - s * .62);
+    ctx.quadraticCurveTo(x + s * .8, y + s * .45, x, y + s * .9);
+    ctx.quadraticCurveTo(x - s * .8, y + s * .45, x - s * .75, y - s * .62);
+    ctx.quadraticCurveTo(x - s * .45, y - s * .6, x, y - s * .85);
     ctx.fill();
+  } else if (type === 'refill') {
+    for (const [dx, dy] of [[-.5, .25], [.5, .25], [0, -.35]]) { heartPath(x + dx * s, y + dy * s, s * .48); ctx.fill(); }
+  } else {
+    heartPath(x, y, s); ctx.fill();
   }
 }
 
@@ -907,6 +1129,8 @@ function drawPlayer() {
     ctx.closePath();
   };
   const u = Q(0, 0)[2] * .14;
+  const blink = invuln > 0 && Math.floor(time * 14) % 2 === 0;
+  if (blink) { alphaMul = .3; ctx.globalAlpha = .3; }
 
   const [gx, gy] = P(px, 0, ZP + .3 * L);
   ctx.save();
@@ -965,6 +1189,21 @@ function drawPlayer() {
   ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, kr, 0, TAU); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(-kr * .38, -kr * .38, kr * .25, 0, TAU); ctx.fill();
   ctx.restore();
+
+  // schild: een glazen bel om het raketje
+  if (powers.shield) {
+    const [bx, by, bs] = Q(0, -.25, .2), r = bs * .14 * 1.6;
+    ctx.save();
+    ctx.translate(bx, by); ctx.scale(1, .7);
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(0, 0, r * .5, 0, 0, r);
+    g.addColorStop(0, 'hsla(265,100%,80%,0)'); g.addColorStop(.8, 'hsla(265,100%,78%,.16)'); g.addColorStop(1, 'hsla(250,100%,86%,.5)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = `hsla(265,100%,88%,${.5 + .3 * Math.sin(time * 5)})`; ctx.lineWidth = Math.max(1.5, r * .035); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(-r * .42, -r * .5, r * .22, r * .09, -.6, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  alphaMul = 1; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
 }
 
 function drawParticles() {
@@ -993,6 +1232,14 @@ function drawParticles() {
         drawGlow(p.h, 100, 75, p.x, p.y, 14 * p.sc, .9);
         ctx.strokeStyle = `hsla(${p.h},100%,85%,.9)`; ctx.lineWidth = 2.4 * p.sc;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * .06, p.y - p.vy * .06); ctx.stroke();
+        break;
+      case 'shard':
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(p.rot) * p.size, p.y + Math.sin(p.rot) * p.size);
+        ctx.lineTo(p.x + Math.cos(p.rot + 2.4) * p.size * .5, p.y + Math.sin(p.rot + 2.4) * p.size * .5);
+        ctx.lineTo(p.x + Math.cos(p.rot + 3.9) * p.size * .7, p.y + Math.sin(p.rot + 3.9) * p.size * .7);
+        ctx.closePath();
+        ctx.fillStyle = `hsla(${p.h},100%,72%,${Math.min(1, k * 1.5)})`; ctx.fill();
         break;
       case 'star':
         starPath(p.x, p.y, p.size, p.size * .45, p.rot);
@@ -1038,7 +1285,7 @@ function render() {
   drawSky();
   drawRoad();
   const ents = [...targets.map(t => ({ z: t.z, t })), ...shots.map(s => ({ z: s.z, s }))].sort((a, b) => b.z - a.z);
-  for (const e of ents) e.t ? (e.t.kind === 'power' ? drawPower(e.t) : drawTarget(e.t)) : drawShot(e.s);
+  for (const e of ents) e.t ? (e.t.kind === 'power' ? drawPower(e.t) : e.t.kind === 'block' ? drawBlock(e.t) : drawTarget(e.t)) : drawShot(e.s);
   drawPlayer();
   drawParticles();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -1084,7 +1331,7 @@ function updateHud() {
   [...$('lives').children].forEach((h, i) => h.classList.toggle('lost', i >= lives));
   $('lvl').hidden = state !== 'play';
   $('lvlTxt').textContent = 'Level ' + level;
-  $('prog').hidden = level !== 1;
+  $('prog').hidden = level >= 3;
 }
 
 let powersKey = '';
@@ -1101,7 +1348,10 @@ function updatePowersHud() {
     el.querySelector('.bar span').style.width = (left / POWERS[k].dur * 100) + '%';
     el.classList.toggle('ending', left < 2);
   }
-  if (level === 1) $('lvlBar').style.width = Math.min(100, score / LEVEL2_SCORE * 100) + '%';
+  if (level < 3) {
+    const [from, to] = level === 1 ? [0, LEVEL2_SCORE] : [LEVEL2_SCORE, LEVEL3_SCORE];
+    $('lvlBar').style.width = clamp((score - from) / (to - from) * 100, 0, 100) + '%';
+  }
 }
 function updateMute() {
   $('mute').innerHTML = muted ? SOUND_OFF : SOUND_ON;
@@ -1142,7 +1392,7 @@ function showMenu() {
   showCard(`
     <h1>Sterrenweg</h1>
     <p class="tag">De planeetjes slapen nog. Schiet sterrenstof en maak ze wakker!</p>
-    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>5.000</strong> punten wacht level 2, met bochten en power-ups.</p>
+    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>5.000</strong> punten wacht level 2, bij <strong>17.500</strong> level 3.</p>
     ${controls}
     ${homeTip()}
     <div class="row"><button class="btn" id="startBtn">Start</button>${bestLine()}</div>`);
@@ -1151,7 +1401,7 @@ function showOver(record) {
   showCard(`
     <span class="lbl">${record ? 'Nieuw record!' : 'Alle hartjes op'}</span>
     <div class="big">${score}</div>
-    <p class="rules">${record ? 'Zoveel planeetjes waren nog nooit wakker.' : 'De planeetjes zijn weer in slaap gesukkeld. Nog een rondje?'}${level >= 2 ? ' Je haalde <strong>level 2</strong>!' : ''}</p>
+    <p class="rules">${record ? 'Zoveel planeetjes waren nog nooit wakker.' : 'De planeetjes zijn weer in slaap gesukkeld. Nog een rondje?'}${level >= 2 ? ` Je haalde <strong>level ${level}</strong>!` : ''}</p>
     ${homeTip()}
     <div class="row"><button class="btn" id="startBtn">Nog een keer</button>${bestLine()}</div>`);
 }
@@ -1170,8 +1420,9 @@ function startGame() {
   score = 0; lives = 3; combo = 0; elapsed = 0;
   targets = []; shots = []; timers = []; spawnT = .7; px = 0; vx = 0;
   level = startLevel(); themeTarget = level - 1;
-  if (level >= 2) elapsed = 50;  // het tempo waarop je level 2 normaal haalt
+  if (level >= 2) elapsed = level >= 3 ? 100 : 50;  // het tempo waarop je dat level normaal haalt
   powers = {}; powerT = level >= 2 ? rand(14, 18) : 4; bendTimer = 1; slowMix = 0;
+  level3At = elapsed; blockT = 4; invuln = 0;
   $('overlay').hidden = true; $('pause').hidden = false;
   updateHud();
   cvs.focus?.();
@@ -1253,8 +1504,11 @@ portrait.addEventListener('change', checkOrientation);
 
 // ---------- start ----------
 resize();
-galaxyA = makeGalaxy(() => rand(190, 320));
-galaxyB = makeGalaxy(() => rand(320, 410) % 360);
+galaxies = [
+  makeGalaxy(() => rand(190, 320)),
+  makeGalaxy(() => rand(320, 410) % 360),
+  makeGalaxy(() => Math.random() < .15 ? rand(40, 55) : rand(95, 175), 150),
+];
 for (let i = 0; i < 7; i++) spawn(rand(5, ZFAR));
 updateMute();
 updateHud();
