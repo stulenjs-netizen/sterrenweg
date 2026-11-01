@@ -82,6 +82,9 @@ kbd{font-family:var(--body);font-weight:800;font-size:13px;color:var(--ink);bord
 .btn:active{transform:translateY(1px)}
 .best{font-size:15px;color:var(--dim);font-weight:700;font-variant-numeric:tabular-nums}
 .best b{color:var(--gold)}
+.tip{display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.35;font-weight:500;color:var(--ink);background:rgba(125,255,214,.08);border:1px solid rgba(125,255,214,.3);border-radius:12px;padding:8px 12px}
+.tip svg{width:20px;height:20px;flex:none;color:var(--mint)}
+.tip strong{font-weight:800}
 .big{font-family:var(--display);font-size:clamp(44px,12vw,64px);line-height:1;color:var(--ink);font-variant-numeric:tabular-nums;text-shadow:0 0 24px rgba(255,211,107,.5)}
 .iconbtn:focus-visible,.btn:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
 @media (max-width:480px){.card{padding:18px 18px 20px}.tag{font-size:17px}}
@@ -148,7 +151,7 @@ const TAU = Math.PI * 2;
 // Wereld: x links-rechts (weg loopt van -1 tot 1), y hoogte boven de weg, z diepte vanaf de camera
 const ZP = 1.25, ZFAR = 34, CAMH = 1, RW = 1;
 const SHOT_RANGE = 13, SHOT_SPEED = 24;
-const LEVEL2_SCORE = 10000, MAX_LIVES = 5;
+const LEVEL2_SCORE = 5000, MAX_LIVES = 5;
 const startLevel = () => location.hash === '#level2' ? 2 : 1;
 const THEMES = [
   { edgeL: 165, edgeR: 320, grid: 270, glow: 35 },
@@ -226,6 +229,8 @@ function resize() {
   F = (H * 0.84 - hy) * ZP;
   Fx = Math.min(F, W * 0.43 * ZP);
   Fs = Math.sqrt(F * Fx);
+  // telefoon: weinig hoogte, dus weg en planeetjes 10% groter
+  if (Math.min(W, H) < 500) { Fx = Math.min(Fx * 1.1, W * 0.48 * ZP); Fs *= 1.1; }
   makeBg();
   makeDust();
 }
@@ -1079,6 +1084,24 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const controls = isTouch
   ? '<div class="keys"><span>Sleep met je vinger om te sturen. Zolang je vinger op het scherm staat, schiet je.</span></div>'
   : '<div class="keys"><span><kbd>←</kbd><kbd>→</kbd> sturen</span><span><kbd>spatie</kbd> schieten (vasthouden mag)</span><span><kbd>P</kbd> pauze</span></div>';
+// Volledig scherm: Safari op de iPhone kent geen volledig scherm voor websites, alleen vanaf het beginscherm.
+// Daarom daar een tip; op iPad en Android vraagt Start zelf om volledig scherm.
+const isIPhone = /iPhone|iPod/.test(navigator.userAgent);
+const fromHomeScreen = navigator.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+const SHARE_ICON = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5v10M6.5 6 10 2.5 13.5 6"/><path d="M6.5 9H5a1 1 0 0 0-1 1v6.5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V10a1 1 0 0 0-1-1h-1.5"/></svg>';
+const homeTip = () => isIPhone && !fromHomeScreen
+  ? `<div class="tip">${SHARE_ICON}<span>Volledig scherm? Tik op <strong>Deel</strong> en kies <strong>Zet op beginscherm</strong>. Start Sterrenweg daarna vanaf je beginscherm.</span></div>`
+  : '';
+function goFullscreen() {
+  if (!isTouch || fromHomeScreen) return;
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req || document.fullscreenElement || document.webkitFullscreenElement) return;
+  try {
+    const p = req.call(el);
+    if (p && p.then) p.then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
+  } catch (e) {}
+}
 const bestLine = () => best > 0 ? `<span class="best">Record: <b>${best}</b></span>` : '<span class="best">Nog geen record</span>';
 
 function showCard(html) {
@@ -1091,8 +1114,9 @@ function showMenu() {
   showCard(`
     <h1>Sterrenweg</h1>
     <p class="tag">De planeetjes slapen nog. Schiet sterrenstof en maak ze wakker!</p>
-    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>10.000</strong> punten wacht level 2, met bochten en power-ups.</p>
+    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>5.000</strong> punten wacht level 2, met bochten en power-ups.</p>
     ${controls}
+    ${homeTip()}
     <div class="row"><button class="btn" id="startBtn">Start</button>${bestLine()}</div>`);
 }
 function showOver(record) {
@@ -1100,6 +1124,7 @@ function showOver(record) {
     <span class="lbl">${record ? 'Nieuw record!' : 'Alle hartjes op'}</span>
     <div class="big">${score}</div>
     <p class="rules">${record ? 'Zoveel planeetjes waren nog nooit wakker.' : 'De planeetjes zijn weer in slaap gesukkeld. Nog een rondje?'}${level >= 2 ? ' Je haalde <strong>level 2</strong>!' : ''}</p>
+    ${homeTip()}
     <div class="row"><button class="btn" id="startBtn">Nog een keer</button>${bestLine()}</div>`);
 }
 function showPause() {
@@ -1112,6 +1137,7 @@ function showPause() {
 function startGame() {
   if (portrait.matches) return;
   audio();
+  goFullscreen();
   state = 'play';
   score = 0; lives = 3; combo = 0; elapsed = 0;
   targets = []; shots = []; timers = []; spawnT = .7; px = 0; vx = 0;

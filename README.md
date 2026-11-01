@@ -14,7 +14,7 @@ Alles zit in één bestand (`index.html`): HTML, CSS en JavaScript met een canva
 - Glipt er een slapend planeetje langs, dan ben je een hartje kwijt.
 - Een gouden ster is 50 punten waard.
 - Elke 5 treffers op rij gaat de vermenigvuldiger omhoog. Tien op rij geeft een supernova.
-- Bij 10.000 punten begint **level 2**, met andere kleuren, bochten in de weg en power-ups:
+- Bij 5.000 punten begint **level 2**, met andere kleuren, bochten in de weg en power-ups:
   - **Drieling** (mint): drie stralen tegelijk
   - **Snelvuur** (goud): sneller schieten
   - **Vertraging** (blauw): alles gaat langzamer
