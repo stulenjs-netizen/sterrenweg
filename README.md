@@ -20,7 +20,7 @@ Alles zit in één bestand (`index.html`): HTML, CSS en JavaScript met een canva
   - **Vertraging** (blauw): alles gaat langzamer
   - **Extra hartje** (roze): één hartje erbij, tot maximaal vijf
   - **Hartjes vol** (magenta): weer drie hartjes, alleen als je er minder hebt
-- Bij 17.500 punten begint **level 3**, de Groene Nevel:
+- Bij 15.000 punten begint **level 3**, de Groene Nevel:
   - **Kristalblokken** op de weg: niet tegenaan botsen, want dat kost een hartje. Je sterrenstof ketst erop af, dus ontwijken is de enige manier. Er blijven altijd twee plekken naast elkaar vrij.
   - **Kiemplaneetjes** (met blaadjes): raak je er een, dan komen er twee kleintjes uit. Een gemist kleintje kost geen hartje, wel je reeks.
   - **Schild** (lila, nieuwe power-up): één keer dwars door een blok heen.

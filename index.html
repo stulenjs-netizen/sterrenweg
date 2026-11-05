@@ -151,7 +151,7 @@ const TAU = Math.PI * 2;
 // Wereld: x links-rechts (weg loopt van -1 tot 1), y hoogte boven de weg, z diepte vanaf de camera
 const ZP = 1.25, ZFAR = 34, CAMH = 1, RW = 1;
 const SHOT_RANGE = 13, SHOT_SPEED = 24;
-const LEVEL2_SCORE = 5000, LEVEL3_SCORE = 17500, MAX_LIVES = 5, FULL_LIVES = 3;
+const LEVEL2_SCORE = 5000, LEVEL3_SCORE = 15000, MAX_LIVES = 5, FULL_LIVES = 3;
 const LEAN = .35, NOSE_Z = ZP + .4;  // raketje helt voor een derde mee met de weg; sterrenstof vertrekt bij de neus
 const startLevel = () => { const m = location.hash.match(/^#level([23])$/); return m ? +m[1] : 1; };
 const THEMES = [
@@ -647,8 +647,8 @@ function update(dt) {
   time += dt;
   const playing = state === 'play';
   if (playing) elapsed += dt;
-  // level 3 iets rustiger dan het eind van level 2: uitwijken voor blokken vraagt reactietijd
-  speed = (playing ? Math.min([17, 19.5, 18][level - 1], 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
+  // level 3 rustiger dan het eind van level 2: uitwijken voor blokken vraagt reactietijd
+  speed = (playing ? Math.min([17, 19.5, 16][level - 1], 8 + elapsed * .12) : 8) * (1 - .45 * slowMix);
   dist += speed * dt;
 
   themeMix += (themeTarget - themeMix) * (1 - Math.exp(-dt * 1.2));
@@ -1392,7 +1392,7 @@ function showMenu() {
   showCard(`
     <h1>Sterrenweg</h1>
     <p class="tag">De planeetjes slapen nog. Schiet sterrenstof en maak ze wakker!</p>
-    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>5.000</strong> punten wacht level 2, bij <strong>17.500</strong> level 3.</p>
+    <p class="rules">Glipt er een slapend planeetje langs, dan ben je een hartje kwijt. Een <strong>gouden ster</strong> is 50 punten. Tien op rij geeft een supernova. Bij <strong>5.000</strong> punten wacht level 2, bij <strong>15.000</strong> level 3.</p>
     ${controls}
     ${homeTip()}
     <div class="row"><button class="btn" id="startBtn">Start</button>${bestLine()}</div>`);
